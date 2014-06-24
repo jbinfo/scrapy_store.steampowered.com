@@ -6,6 +6,7 @@
 from scrapy.item import Item, Field
 
 class SteampoweredItem(Item):
+    rank            = Field()
     name            = Field()
     poster          = Field()
     video           = Field()
@@ -17,5 +18,6 @@ class SteampoweredItem(Item):
     languages       = Field()
     about           = Field()
     website         = Field()
-    warning         = Field()
     requirements    = Field()
+    link            = Field()
+

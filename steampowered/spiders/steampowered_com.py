@@ -1,29 +1,87 @@
+# -*- coding: utf-8 -*-
+
+from urlparse import urlparse
 from scrapy.selector import Selector
 from scrapy.contrib.linkextractors.sgml import SgmlLinkExtractor
 from scrapy.contrib.spiders import CrawlSpider, Rule
-from scrapy.http import FormRequest
+from scrapy.http import Request, FormRequest
 from steampowered.items import SteampoweredItem
 
 class SteampoweredComSpider(CrawlSpider):
-    name = 'steampowered_com'
-    allowed_domains = ['store.steampowered.com']
+    name            = 'steampowered_com'
+    allowed_domains = ['steamcharts.com', 'store.steampowered.com']
+    start_urls      = ['http://steamcharts.com/top']
+    check_age       = False
 
     rules = (
-        Rule(SgmlLinkExtractor(allow=r'genre/'), follow=True),
-        Rule(SgmlLinkExtractor(allow=r'app/\d+'), callback='parse_item')
+        Rule(
+            SgmlLinkExtractor(
+                allow=r'(top\/p\.)([1-9]|1[0-9]|20)$', 
+            ), 
+            follow=True, 
+            callback='parse_steamcharts'
+        ),
     )
 
-    def start_requests(self):
-        request = FormRequest('http://store.steampowered.com/agecheck/app/252490/', 
-            formdata={'ageDay': '1', 'ageMonth': 'January', 'ageYear': '1980'}, 
-            callback=self.parse)
+    def parse_steamcharts(self, response):
+        sel = Selector(response)
 
-        return [request]
+        url = urlparse(response.url)
 
-    def parse_item(self, response):
+        games = sel.xpath('//*[@id="top-games"]/tbody/tr')
+
+        if len(games) > 0:
+            for game in games:
+                rank = int(float(''.join(game.xpath('number(td[1]//text())').extract())))
+
+                relative_app_url    = ''.join(game.xpath('td[2]/a/@href').extract())
+                request_url         = '%s://%s%s' % (url.scheme, url.netloc, relative_app_url) 
+                
+                yield Request(
+                    request_url, 
+                    meta={
+                        'rank':             rank, 
+                        'relative_app_url': relative_app_url
+                    }, 
+                    callback=self.parse_steamcharts
+                )
+
+        store = ''.join(sel.xpath('//*[@id="app-links"]/a[contains(., "Store")]/@href').extract())
+        if store != '':
+            if self.check_age is False:
+                self.check_age = True
+
+                yield FormRequest(
+                    'http://store.steampowered.com/agecheck%s' % response.meta['relative_app_url'], 
+                    formdata={
+                        'ageDay':   '1', 
+                        'ageMonth': 'January', 
+                        'ageYear':  '1980'
+                    },
+                    meta={
+                        'rank':             response.meta['rank'], 
+                        'relative_app_url': response.meta['relative_app_url']
+                    },
+                    callback=self.parse_game_store
+                )
+
+            else:
+                yield Request(
+                    store, 
+                    meta={
+                        'rank':             response.meta['rank'], 
+                        'relative_app_url': response.meta['relative_app_url']
+                    }, 
+                    callback=self.parse_game_store
+                )
+
+
+    def parse_game_store(self, response):
         sel = Selector(response)
         i = SteampoweredItem()
 
+        i['link']            = response.url
+        i['rank']           = response.meta['rank']
         i['name']           = ''.join(sel.xpath('normalize-space(//*[@id="main_content"]//*[@class="block_content_inner"]//*[contains(text(), "Title")]/following-sibling::text())').extract())
         videosvars          = sel.xpath('normalize-space(//*[@id="highlight_player_area"]/*[1]/script)').re(r'[src|data\-hd\-src|poster]=("http\://.*?")')
 
