@@ -10,18 +10,23 @@ from steampowered.items import SteampoweredItem
 class SteampoweredComSpider(CrawlSpider):
     name            = 'steampowered_com'
     allowed_domains = ['steamcharts.com', 'store.steampowered.com']
-    start_urls      = ['http://steamcharts.com/top']
     check_age       = False
 
-    rules = (
-        Rule(
-            SgmlLinkExtractor(
-                allow=r'(top\/p\.)([1-9]|1[0-9]|20)$', 
-            ), 
-            follow=True, 
-            callback='parse_steamcharts'
-        ),
-    )
+    # rules = (
+    #     Rule(
+    #         SgmlLinkExtractor(
+    #             allow=r'(top\/p\.)([1-9]|1[0-9]|20)$', 
+    #         ), 
+    #         follow=True, 
+    #         callback='parse_steamcharts'
+    #     ),
+    # )
+
+    def start_requests(self):
+        return [
+            Request('http://steamcharts.com/top', callback=self.parse_steamcharts)
+        ]
+
 
     def parse_steamcharts(self, response):
         sel = Selector(response)
@@ -43,6 +48,14 @@ class SteampoweredComSpider(CrawlSpider):
                         'rank':             rank, 
                         'relative_app_url': relative_app_url
                     }, 
+                    callback=self.parse_steamcharts
+                )
+
+        pagination = sel.xpath('//*[@class="pagination"]/a[contains(., "Next")]/@href').re(r'(\/top\/p\.(\d+))') # /top/p.2
+        if len(pagination) > 0:
+            if int(pagination[1]) <= 20:
+                yield Request(
+                    '%s://%s%s' % (url.scheme, url.netloc, pagination[0]), 
                     callback=self.parse_steamcharts
                 )
 
